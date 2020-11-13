@@ -6,4 +6,9 @@ edition = "2018"
 
 [dependencies]
 displaydoc = {version = "0.1.7", default-features = false }
+
+[target.'cfg(target_env = "msvc")'.dependencies]
 sha2 = { version = "0.9", default-features = false }
+
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+sha2 = { version = "0.9", default-features = false, features = ["asm"] }

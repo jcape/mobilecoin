@@ -34,7 +34,12 @@ mc-util-encodings = { path = "../../util/encodings" }
 mc-util-from-random = { path = "../../util/from-random" }
 aes-gcm = "0.6"
 rand_hc = "0.2"
+
+[target.'cfg(target_env = "msvc")'.dev-dependencies]
 sha2 = "0.9"
+
+[target.'cfg(not(target_env = "msvc"))'.dev-dependencies]
+sha2 = { version = "0.9", features = ["asm"] }
 
 [build-dependencies]
 mc-util-build-script = { path = "../../util/build/script" }
