@@ -37,7 +37,7 @@ mc-sgx-slog = { path = "../../../sgx/slog", features = ["sgx"] }
 mc-sgx-slog-edl = { path = "../../../sgx/slog-edl" }
 mc-sgx-types = { path = "../../../sgx/types" }
 
-mbedtls = { git = "https://github.com/mobilecoinofficial/rust-mbedtls.git", tag = "mc-0.3", default-features = false, features = ["aesni","force_aesni_support","rdrand"] }
+mbedtls = { version = "0.5.1", default-features = false, features = ["aesni","force_aesni_support","rdrand"] }
 
 lazy_static = { version = "1.4", features = ["spin_no_std"] }
 
@@ -89,6 +89,10 @@ cpuid-bool = { git = "https://github.com/eranrund/RustCrypto-utils", rev = "74f8
 
 # We need to patch aes-gcm so we can make some fields/functions/structs pub in order to have a constant time decrypt
 aes-gcm = { git = "https://github.com/xoloki/AEADs", rev = "d1a8517d3dd867ed9c5794002add67992a42f6aa" }
+
+# Our fork of rust-mbedtls, patched to use newer bindgen and build under MSVC
+mbedtls = { git = "https://github.com/mobilecoinofficial/rust-mbedtls.git", rev = "56a1b9adacf275031a001e365ed7587be38e3b12" }
+mbedtls-sys-auto = { git = "https://github.com/mobilecoinofficial/rust-mbedtls.git", rev = "56a1b9adacf275031a001e365ed7587be38e3b12" }
 
 
 [workspace]

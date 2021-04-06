@@ -3,6 +3,7 @@ cargo-features = ["resolver"]
 [workspace]
 resolver = "2"
 members = [
+    "account-keys",
     "admin-http-gateway",
     "api",
     "attest/ake",
@@ -24,14 +25,18 @@ members = [
     "consensus/scp",
     "consensus/scp/play",
     "consensus/service",
+    "crypto/ake/enclave",
     "crypto/box",
+    "crypto/ct-aead",
     "crypto/digestible",
     "crypto/digestible/derive/test",
     "crypto/digestible/test-utils",
+    "crypto/hashes",
     "crypto/keys",
     "crypto/message-cipher",
     "crypto/noise",
     "crypto/rand",
+    "crypto/sig",
     "enclave-boundary",
     "fog/api",
     "fog/report/connection",
@@ -47,22 +52,16 @@ members = [
     "peers",
     "peers/test-utils",
     "sgx/compat-edl",
-    "sgx/core-types",
-    "sgx/core-types-sys",
     "sgx/css",
     "sgx/debug-edl",
-    "sgx/epid",
-    "sgx/epid-sys",
-    "sgx/epid-types",
-    "sgx/epid-types-sys",
-    "sgx/ias-types",
+    "sgx/enclave-id",
     "sgx/panic-edl",
     "sgx/report-cache/api",
     "sgx/report-cache/untrusted",
     "sgx/slog-edl",
-    "sgx/urts-sys",
     "test-vectors/account-keys",
     "test-vectors/b58-encodings",
+    "test-vectors/definitions",
     "testnet-client",
     "transaction/core",
     "transaction/core/test-utils",
@@ -70,6 +69,7 @@ members = [
     "util/build/bolt-signalapp",
     "util/build/enclave",
     "util/build/grpc",
+    "util/build/info",
     "util/build/script",
     "util/build/sgx",
     "util/encodings",
@@ -143,9 +143,12 @@ serde_cbor = { git = "https://github.com/mobilecoinofficial/cbor", rev = "4c886a
 # Patched to depend on crates that depend on digest 0.9
 bulletproofs = { git = "https://github.com/eranrund/bulletproofs", rev = "e8e8ef45ecc6d31f1a9525140edc977351d0f780" }
 
-# Patched to disable the cpuid instruction because that is incompatible with our sgx builds.
+# Patched to disable the scpuid instruction because that is incompatible with our sgx builds.
 cpuid-bool = { git = "https://github.com/eranrund/RustCrypto-utils", rev = "74f8e04e9d18d93fc6d05c72756c236dc88daa19" }
 
 # We need to patch aes-gcm so we can make some fields/functions/structs pub in order to have a constant time decrypt
 aes-gcm = { git = "https://github.com/xoloki/AEADs", rev = "d1a8517d3dd867ed9c5794002add67992a42f6aa" }
 
+# Our fork of rust-mbedtls, patched to use newer bindgen and build under MSVC
+mbedtls = { git = "https://github.com/mobilecoinofficial/rust-mbedtls.git", rev = "56a1b9adacf275031a001e365ed7587be38e3b12" }
+mbedtls-sys-auto = { git = "https://github.com/mobilecoinofficial/rust-mbedtls.git", rev = "56a1b9adacf275031a001e365ed7587be38e3b12" }

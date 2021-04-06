@@ -157,7 +157,7 @@ pub struct Builder {
     profile: String,
 
     /// The path to the linker to use
-    linker: PathBuf,
+    linker: Option<PathBuf>,
 
     /// The configured SGX mode
     sgx_mode: SgxMode,
@@ -251,7 +251,7 @@ impl Builder {
             profile_target_dir: env.profile_target_dir().to_owned(),
             profile: env.profile().to_owned(),
             sgx_version: sgx_version.to_owned(),
-            linker: env.linker().to_owned(),
+            linker: env.linker().map(ToOwned::to_owned),
             sgx_mode: sgx.sgx_mode(),
             css: None,
             dump: None,
@@ -683,7 +683,7 @@ impl Builder {
         // [3] https://github.com/slimm609/checksec.sh
         // [4] man ld(1)
 
-        let mut command = Command::new(&self.linker);
+        let mut command = Command::new(self.linker.as_ref().expect("LD linker not provided, are you trying to link an enclave on Windows?"));
 
         command
             .args(&[

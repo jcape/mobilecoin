@@ -8,7 +8,7 @@ use std::{
     borrow::ToOwned,
     collections::{hash_map::Iter as HashMapIter, hash_set::Iter as HashSetIter, HashMap, HashSet},
     convert::TryFrom,
-    env::{split_paths, var, var_os, vars, VarError},
+    env::{self, VarError},
     iter::FromIterator,
     num::ParseIntError,
     path::{Path, PathBuf},
@@ -106,7 +106,7 @@ impl From<TargetFamilyError> for EnvironmentError {
 }
 
 fn read_depvars() -> HashMap<String, String> {
-    vars()
+    env::vars()
         .filter_map(|(mut key, value)| {
             if key.starts_with("DEP_") {
                 key.replace_range(.."DEP_".len(), "");
@@ -120,7 +120,7 @@ fn read_depvars() -> HashMap<String, String> {
 
 /// Collect all the cargo features currently set.
 fn read_features() -> HashSet<String> {
-    vars()
+    env::vars()
         .filter_map(|(mut key, _value)| {
             if key.starts_with("CARGO_FEATURE_") {
                 key.replace_range(.."CARGO_FEATURE_".len(), "");
@@ -138,7 +138,7 @@ fn read_features() -> HashSet<String> {
 
 /// Parse an integer from a string
 fn parse_int_var<T: FromStr<Err = ParseIntError>>(env_var: &str) -> Result<T, EnvironmentError> {
-    var(env_var)
+    env::var(env_var)
         .map_err(|e| EnvironmentError::Var(env_var.to_owned(), e))?
         .parse::<T>()
         .map_err(|e| EnvironmentError::ParseInt(env_var.to_owned(), e))
@@ -146,7 +146,7 @@ fn parse_int_var<T: FromStr<Err = ParseIntError>>(env_var: &str) -> Result<T, En
 
 /// Create a pathbuf from the contents of the given environment variable
 fn env_to_opt_pathbuf(name: &str) -> Option<PathBuf> {
-    var(name).ok().and_then(|v| {
+    env::var(name).ok().and_then(|v| {
         if v.is_empty() {
             None
         } else {
@@ -205,7 +205,8 @@ pub struct Environment {
     profile: String,
     rustc: PathBuf,
     rustdoc: PathBuf,
-    linker: PathBuf,
+    // This is optional because it's only required when building on Linux
+    linker: Option<PathBuf>,
     locked: bool,
 
     // Derived variables
@@ -219,16 +220,41 @@ impl Default for Environment {
     }
 }
 
+#[cfg(target_env = "msvc")]
+fn find_ld() -> Option<PathBuf> {
+    None
+}
+
+#[cfg(not(target_env = "msvc"))]
+fn find_ld() -> Option<PathBuf> {
+    Some(
+        var_os(ENV_PATH)
+            .and_then(|paths| {
+                split_paths(&paths)
+                    .filter_map(|dir| {
+                        let full_path = dir.join("ld");
+                        if full_path.is_file() {
+                            Some(full_path)
+                        } else {
+                            None
+                        }
+                    })
+                    .next()
+            })
+            .expect("Could not find `ld` in path environment variable"),
+    )
+}
+
 impl Environment {
     /// Construct a new build configuration structure, or die trying.
     pub fn new() -> Result<Environment, EnvironmentError> {
         let out_dir = PathBuf::from(
-            var(ENV_OUT_DIR).map_err(|e| EnvironmentError::Var(ENV_OUT_DIR.to_owned(), e))?,
+            env::var(ENV_OUT_DIR).map_err(|e| EnvironmentError::Var(ENV_OUT_DIR.to_owned(), e))?,
         );
         let target =
-            var(ENV_TARGET).map_err(|e| EnvironmentError::Var(ENV_TARGET.to_owned(), e))?;
+            env::var(ENV_TARGET).map_err(|e| EnvironmentError::Var(ENV_TARGET.to_owned(), e))?;
         let profile =
-            var(ENV_PROFILE).map_err(|e| EnvironmentError::Var(ENV_PROFILE.to_owned(), e))?;
+            env::var(ENV_PROFILE).map_err(|e| EnvironmentError::Var(ENV_PROFILE.to_owned(), e))?;
         let profile_target_dir = out_dir
             .as_path()
             .ancestors()
@@ -240,13 +266,13 @@ impl Environment {
             .ok_or_else(|| EnvironmentError::OutDir(out_dir.clone()))?
             .to_owned();
 
-        let target_has_atomic = var(ENV_CARGO_CFG_TARGET_HAS_ATOMIC)
+        let target_has_atomic = env::var(ENV_CARGO_CFG_TARGET_HAS_ATOMIC)
             .unwrap_or_default()
             .split(',')
             .map(ToOwned::to_owned)
             .collect::<HashSet<String>>();
 
-        let target_has_atomic_load_store = var(ENV_CARGO_CFG_TARGET_HAS_ATOMIC_LOAD_STORE)
+        let target_has_atomic_load_store = env::var(ENV_CARGO_CFG_TARGET_HAS_ATOMIC_LOAD_STORE)
             .unwrap_or_default()
             .split(',')
             .map(ToOwned::to_owned)
@@ -254,57 +280,39 @@ impl Environment {
 
         let linker = env_to_opt_pathbuf(ENV_RUSTC_LINKER)
             .or_else(|| env_to_opt_pathbuf(ENV_LD))
-            .or_else(|| {
-                Some(
-                    var_os(ENV_PATH)
-                        .and_then(|paths| {
-                            split_paths(&paths)
-                                .filter_map(|dir| {
-                                    let full_path = dir.join("ld");
-                                    if full_path.is_file() {
-                                        Some(full_path)
-                                    } else {
-                                        None
-                                    }
-                                })
-                                .next()
-                        })
-                        .expect("Could not find `ld` in path environment variable"),
-                )
-            })
-            .expect("Could not find linker to use");
+            .or_else(find_ld);
 
         let features = read_features();
         let depvars = read_depvars();
 
         Ok(Self {
             // CARGO_*
-            cargo_path: var(ENV_CARGO)
+            cargo_path: env::var(ENV_CARGO)
                 .map_err(|e| EnvironmentError::Var(ENV_CARGO.to_owned(), e))?
                 .into(),
-            locked: var(ENV_CARGO_LOCKED).is_ok(),
+            locked: env::var(ENV_CARGO_LOCKED).is_ok(),
 
             // CARGO_MANIFEST_*
-            manifest_dir: var(ENV_CARGO_MANIFEST_DIR)
+            manifest_dir: env::var(ENV_CARGO_MANIFEST_DIR)
                 .map_err(|e| EnvironmentError::Var(ENV_CARGO_MANIFEST_DIR.to_owned(), e))?
                 .into(),
-            manifest_links: var(ENV_CARGO_MANIFEST_LINKS).ok(),
+            manifest_links: env::var(ENV_CARGO_MANIFEST_LINKS).ok(),
 
             // Other variables
-            debug: var(ENV_DEBUG).is_ok(),
-            host: var(ENV_HOST).map_err(|e| EnvironmentError::Var(ENV_HOST.to_owned(), e))?,
+            debug: env::var(ENV_DEBUG).is_ok(),
+            host: env::var(ENV_HOST).map_err(|e| EnvironmentError::Var(ENV_HOST.to_owned(), e))?,
             linker,
             num_jobs: parse_int_var(ENV_NUM_JOBS)?,
             out_path: out_dir,
             opt_level: parse_int_var(ENV_OPT_LEVEL)?,
             profile,
-            rustc: var(ENV_RUSTC)
+            rustc: env::var(ENV_RUSTC)
                 .map_err(|e| EnvironmentError::Var(ENV_RUSTC.to_owned(), e))?
                 .into(),
-            rustdoc: var(ENV_RUSTDOC)
+            rustdoc: env::var(ENV_RUSTDOC)
                 .map_err(|e| EnvironmentError::Var(ENV_RUSTDOC.to_owned(), e))?
                 .into(),
-            target: var(ENV_TARGET).map_err(|e| EnvironmentError::Var(ENV_TARGET.to_owned(), e))?,
+            target: env::var(ENV_TARGET).map_err(|e| EnvironmentError::Var(ENV_TARGET.to_owned(), e))?,
 
             // CARGO_FEATURE_*
             features,
@@ -312,12 +320,12 @@ impl Environment {
             depvars,
 
             // CARGO_PKG_*
-            pkg_version: var(ENV_CARGO_PKG_VERSION)
+            pkg_version: env::var(ENV_CARGO_PKG_VERSION)
                 .map_err(|e| EnvironmentError::Var(ENV_CARGO_PKG_VERSION.to_owned(), e))?,
             version_major: parse_int_var(ENV_CARGO_PKG_VERSION_MAJOR)?,
             version_minor: parse_int_var(ENV_CARGO_PKG_VERSION_MINOR)?,
             version_patch: parse_int_var(ENV_CARGO_PKG_VERSION_PATCH)?,
-            version_pre: match var(ENV_CARGO_PKG_VERSION_PRE) {
+            version_pre: match env::var(ENV_CARGO_PKG_VERSION_PRE) {
                 Ok(value) => {
                     if value.is_empty() {
                         None
@@ -334,50 +342,50 @@ impl Environment {
                 }
             },
             authors: HashSet::from_iter(
-                var(ENV_CARGO_PKG_AUTHORS)
+                env::var(ENV_CARGO_PKG_AUTHORS)
                     .map_err(|e| EnvironmentError::Var(ENV_CARGO_PKG_AUTHORS.to_owned(), e))?
                     .split(':')
                     .map(ToOwned::to_owned),
             ),
-            name: var(ENV_CARGO_PKG_NAME)
+            name: env::var(ENV_CARGO_PKG_NAME)
                 .map_err(|e| EnvironmentError::Var(ENV_CARGO_PKG_NAME.to_owned(), e))?,
-            description: var(ENV_CARGO_PKG_DESCRIPTION)
+            description: env::var(ENV_CARGO_PKG_DESCRIPTION)
                 .map_err(|e| EnvironmentError::Var(ENV_CARGO_PKG_DESCRIPTION.to_owned(), e))?,
-            homepage: var(ENV_CARGO_PKG_HOMEPAGE)
+            homepage: env::var(ENV_CARGO_PKG_HOMEPAGE)
                 .map_err(|e| EnvironmentError::Var(ENV_CARGO_PKG_HOMEPAGE.to_owned(), e))?,
-            repository: var(ENV_CARGO_PKG_REPOSITORY)
+            repository: env::var(ENV_CARGO_PKG_REPOSITORY)
                 .map_err(|e| EnvironmentError::Var(ENV_CARGO_PKG_REPOSITORY.to_owned(), e))?,
 
             // CARGO_CFG_*
-            debug_assertions: var(ENV_CARGO_CFG_DEBUG_ASSERTIONS).is_ok(),
-            proc_macro: var(ENV_CARGO_CFG_PROC_MACRO).is_ok(),
-            target_arch: var(ENV_CARGO_CFG_TARGET_ARCH)
+            debug_assertions: env::var(ENV_CARGO_CFG_DEBUG_ASSERTIONS).is_ok(),
+            proc_macro: env::var(ENV_CARGO_CFG_PROC_MACRO).is_ok(),
+            target_arch: env::var(ENV_CARGO_CFG_TARGET_ARCH)
                 .map_err(|e| EnvironmentError::Var(ENV_CARGO_CFG_TARGET_ARCH.to_owned(), e))?,
             target_endian: Endianness::try_from(
-                var(ENV_CARGO_CFG_TARGET_ENDIAN)
+                env::var(ENV_CARGO_CFG_TARGET_ENDIAN)
                     .map_err(|e| EnvironmentError::Var(ENV_CARGO_CFG_TARGET_ENDIAN.to_owned(), e))?
                     .as_str(),
             )?,
-            target_env: var(ENV_CARGO_CFG_TARGET_ENV)
+            target_env: env::var(ENV_CARGO_CFG_TARGET_ENV)
                 .map_err(|e| EnvironmentError::Var(ENV_CARGO_CFG_TARGET_ENV.to_owned(), e))?,
             target_family: TargetFamily::try_from(
-                var(ENV_CARGO_CFG_TARGET_FAMILY)
+                env::var(ENV_CARGO_CFG_TARGET_FAMILY)
                     .map_err(|e| EnvironmentError::Var(ENV_CARGO_CFG_TARGET_FAMILY.to_owned(), e))?
                     .as_ref(),
             )?,
             target_features: HashSet::from_iter(
-                var(ENV_CARGO_CFG_TARGET_FEATURE)
+                env::var(ENV_CARGO_CFG_TARGET_FEATURE)
                     .map_err(|e| EnvironmentError::Var(ENV_CARGO_CFG_TARGET_FEATURE.to_owned(), e))?
                     .split(',')
                     .map(ToOwned::to_owned),
             ),
             target_has_atomic,
             target_has_atomic_load_store,
-            target_os: var(ENV_CARGO_CFG_TARGET_OS)
+            target_os: env::var(ENV_CARGO_CFG_TARGET_OS)
                 .map_err(|e| EnvironmentError::Var(ENV_CARGO_CFG_TARGET_OS.to_owned(), e))?,
             target_pointer_width: parse_int_var(ENV_CARGO_CFG_TARGET_POINTER_WIDTH)?,
-            target_thread_local: var(ENV_CARGO_CFG_TARGET_THREAD_LOCAL).is_ok(),
-            target_vendor: var(ENV_CARGO_CFG_TARGET_VENDOR)
+            target_thread_local: env::var(ENV_CARGO_CFG_TARGET_THREAD_LOCAL).is_ok(),
+            target_vendor: env::var(ENV_CARGO_CFG_TARGET_VENDOR)
                 .map_err(|e| EnvironmentError::Var(ENV_CARGO_CFG_TARGET_VENDOR.to_owned(), e))?,
 
             // Derived variables
@@ -439,8 +447,8 @@ impl Environment {
     }
 
     /// Get the path to the linker executable being used
-    pub fn linker(&self) -> &Path {
-        &self.linker
+    pub fn linker(&self) -> Option<&Path> {
+        self.linker.as_ref().map(AsRef::<Path>::as_ref)
     }
 
     /// Get the number of jobs which can be run in parallel

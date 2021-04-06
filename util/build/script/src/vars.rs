@@ -50,6 +50,9 @@ pub const ENV_RUSTC_LINKER: &str = "RUSTC_LINKER";
 pub const ENV_RUSTDOC: &str = "RUSTDOC";
 pub const ENV_TARGET: &str = "TARGET";
 pub const ENV_LD: &str = "LD";
+
+// On windows, this is dead code
+#[allow(dead_code)]
 pub const ENV_PATH: &str = "PATH";
 
 // CARGO_PKG_*
