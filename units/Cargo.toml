@@ -1,0 +1,6 @@
+[package]
+name = "mc-units"
+version = "1.0.1-pre1"
+authors = ["MobileCoin"]
+edition = "2018"
+description = "Types useful for handling and disambiguating common values"
